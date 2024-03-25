@@ -1,30 +1,45 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, Response, render_template
+import requests
 from pytube import YouTube
 
 app = Flask(__name__)
 
-
 @app.route('/')
 def index():
     return render_template('index.html')
+
 
 @app.route('/download', methods=['GET'])
 def download_video():
     video_url = request.args.get('url')
 
     try:
+        # Get YouTube video object
         yt = YouTube(video_url)
-        stream = yt.streams.filter(progressive=True, file_extension='mp4').first()
+
+        # Get the first stream available
+        stream = yt.streams.filter(progressive=True, file_extension='mp4').order_by('resolution').first()
+
         if not stream:
-            return jsonify({'error': 'No video available for download'}), 400
+            return 'No video available for download'
 
-        # Get the direct download link of the video
-        download_link = stream.url
+        # Fetch the direct video URL
+        video_url = stream.url
 
-        # Return a redirect to the direct download link
-        return jsonify({'download_link': download_link}), 200
+        # Make a request to the direct video URL
+        response = requests.get(video_url, stream=True)
+
+        if response.status_code != 200:
+            return 'Failed to fetch video', response.status_code
+
+        # Stream video data back to the client
+        def generate():
+            for chunk in response.iter_content(chunk_size=1024):
+                yield chunk
+
+        return Response(generate(), content_type='video/mp4', direct_passthrough=True)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return str(e)
 
 if __name__ == '__main__':
   app.run(host='0.0.0.0', port=8080)
